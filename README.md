@@ -1,6 +1,6 @@
 # ShopEase Support
 
-React/Vite chat UI backed by a FastAPI service. The API persists conversation history, escalation tickets, feedback and image-review records in SQLite. With `GEMINI_API_KEY` configured, chat and image triage use Gemini (`gemini-3.8-flash` by default). Without a key, chat uses the local FAQ fallback and photos are routed for human review.
+React/Vite chat UI backed by a FastAPI service. The API persists conversation history, escalation tickets, feedback and image-review records in SQLite. With `GEMINI_API_KEY` configured, chat and image triage use Gemini (`gemini-3.5-flash-lite` by default). Without a key, chat uses the local FAQ fallback and photos are routed for human review.
 
 ## Run locally
 

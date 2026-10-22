@@ -19,13 +19,16 @@ FAQ = json.loads((BASE_DIR / "faq.json").read_text(encoding="utf-8"))
 DB_PATH = Path(os.getenv("DATABASE_PATH", str(BASE_DIR / "shopease.db")))
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
-MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 client = None
 if os.getenv("GEMINI_API_KEY"):
     try:
         from google import genai
         from google.genai import types
-        client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+        client = genai.Client(
+            api_key=os.environ["GEMINI_API_KEY"],
+            http_options=types.HttpOptions(timeout=20000),
+        )
     except ImportError:
         print("GEMINI_API_KEY is set, but google-genai is not installed; using FAQ fallback.")
 
@@ -116,7 +119,7 @@ def system_prompt(language: str, order_info: str) -> str:
     language_name = LANG_NAMES.get(language, "English")
     return f"""You are the customer support assistant for {FAQ['company']}.
 Use only the FAQ and order data below. Never invent policies, prices, or order details.
-Reply in the customer's language; if unclear use {language_name}. Keep replies short and polite.
+Always reply in the selected interface language: {language_name}, even when the customer's message is written in another language. Use the normal script for that language. Keep replies short and polite.
 Escalate only for a human request, anger/frustration, fraud, legal action, safety issue, or repeated inability to help.
 When uncertain, say so and offer a human agent. Return JSON only with keys reply, intent, category, sentiment, escalate.
 FAQ:\n{faq}\nORDER DATA:\n{order_info}"""
@@ -160,15 +163,21 @@ def fallback_answer(text: str, order_info: str) -> dict:
 def generate_chat(text: str, history: list[dict], language: str, order_info: str) -> dict:
     if client is None:
         return fallback_answer(text, order_info)
-    contents = [{"role": "model" if turn["role"] == "assistant" else "user", "parts": [turn["content"]]} for turn in history]
-    contents.append({"role": "user", "parts": [text]})
+    contents = [
+        types.Content(
+            role="model" if turn["role"] == "assistant" else "user",
+            parts=[types.Part(text=turn["content"])],
+        )
+        for turn in history
+    ]
+    contents.append(types.Content(role="user", parts=[types.Part(text=text)]))
     now = time.time()
     try_models = [MODEL] if MODEL_COOLDOWN.get(MODEL, 0) <= now else []
     try_models += [name for name in ("gemini-3.5-flash-lite",) if name != MODEL and MODEL_COOLDOWN.get(name, 0) <= now]
     for model in try_models:
         try:
             response = client.models.generate_content(model=model, contents=contents,
-                config=types.GenerateContentConfig(system_instruction=system_prompt(language, order_info), response_mime_type="application/json", max_output_tokens=800))
+                config=types.GenerateContentConfig(system_instruction=system_prompt(language, order_info), response_mime_type="application/json", max_output_tokens=400))
             return parse_model_json(response.text or "")
         except Exception as exc:
             message = str(exc)
